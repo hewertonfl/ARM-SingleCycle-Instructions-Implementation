@@ -162,20 +162,21 @@ module arm(input  logic        clk, reset,
            input  logic [31:0] ReadData);
 
   logic [3:0] ALUFlags;
-  logic       RegWrite, MovFlag,                                   // MovFlag adicionado
+  logic       RegWrite, MovFlag,CmpFlag,                                   // MovFlag adicionado , CmpFlag
               ALUSrc, MemtoReg, PCSrc;
   logic [1:0] RegSrc, ImmSrc, ALUControl;
 
   controller c(clk, reset, Instr[31:12], ALUFlags, 
                RegSrc, RegWrite, ImmSrc, 
                ALUSrc, ALUControl,
-               MemWrite, MemtoReg, MovFlag, PCSrc);                 // MovFlag adicionado
+               MemWrite, MemtoReg, MovFlag,CmpFlag, PCSrc);                 // MovFlag adicionado , CmpFlag
   datapath dp(clk, reset, 
               RegSrc, RegWrite, ImmSrc,
               ALUSrc, ALUControl,
-              MemtoReg, PCSrc, MovFlag,                              // MovFlag adicionado
+              MemtoReg, PCSrc, MovFlag,CmpFlag,                              // MovFlag adicionado , CmpFlag
               ALUFlags, PC, Instr,
               ALUResult, WriteData, ReadData);
+
 endmodule
 
 module controller(input  logic         clk, reset,
@@ -187,18 +188,18 @@ module controller(input  logic         clk, reset,
                   output logic         ALUSrc, 
                   output logic [1:0]   ALUControl,
                   output logic         MemWrite, MemtoReg,
-                  output logic         MovFlag,                         //MovFlag adicionada; saida do controlador             
+                  output logic         MovFlag,CmpFlag,                         //MovFlag adicionada; saida do controlador, CmpFlag             
                   output logic         PCSrc);
 
   logic [1:0] FlagW;
-  logic       PCS, RegW, MemW, MovF;                                    //MovF logica adicionada
+  logic       PCS, RegW, MemW, MovF,CmpF;                                    //MovF logica adicionada,, CmpF
   
   decoder dec(Instr[27:26], Instr[25:20], Instr[15:12],                 
-              FlagW, PCS, RegW, MemW,                                   //MovF adicionada; se atentar a contagem
-              MemtoReg, ALUSrc, MovF, ImmSrc, RegSrc, ALUControl);
+              FlagW, PCS, RegW, MemW,                                   //MovF adicionada; se atentar a contagem, CmpF
+              MemtoReg, ALUSrc, MovF,CmpF, ImmSrc, RegSrc, ALUControl);
   condlogic cl(clk, reset, Instr[31:28], ALUFlags,                         
-               FlagW, PCS, RegW, MemW, MovF,                            //MovF adicionada; se atentar a contagem
-               PCSrc, RegWrite, MemWrite, MovFlag);                     //MovFlag adicionada saida; se atentar a contagem
+               FlagW, PCS, RegW, MemW, MovF,CmpF,                            //MovF adicionada; se atentar a contagem, CmpF
+               PCSrc, RegWrite, MemWrite, MovFlag,CmpFlag);             //MovFlag adicionada saida; se atentar a contagem, CmpFlag
 endmodule
 
 module decoder(input  logic [1:0] Op,
@@ -206,7 +207,7 @@ module decoder(input  logic [1:0] Op,
                input  logic [3:0] Rd,
                output logic [1:0] FlagW,
                output logic       PCS, RegW, MemW,
-               output logic       MemtoReg, ALUSrc, MovF,                  // MovF Flag do MOV
+               output logic       MemtoReg, ALUSrc, MovF,CmpF,                  // MovF Flag do MOV, CmpF
                output logic [1:0] ImmSrc, RegSrc, ALUControl);
 
   logic [9:0] controls;
@@ -237,40 +238,59 @@ module decoder(input  logic [1:0] Op,
   always_comb
     if (ALUOp) begin                 // which DP Instr?
       case(Funct[4:1]) 
-  	    4'b0100: begin
+  	         4'b0100: begin
                             ALUControl = 2'b00; // ADD
  //                         NoWrite = 1'b0;    
-                            MovF = 1'b0;    
+                            MovF = 1'b0;
+                            CmpF = 1'b0;    
                       end
 
              4'b0010: begin
                             ALUControl = 2'b01; // SUB
  //                         NoWrite = 1'b0;    
-                            MovF = 1'b0;    
+                            MovF = 1'b0;
+                            CmpF = 1'b0;      
                       end
 
              4'b0000: begin
                             ALUControl = 2'b10; // AND
  //                         NoWrite = 1'b0;    
-                            MovF = 1'b0;    
+                            MovF = 1'b0;
+                            CmpF = 1'b0;      
                       end
 
              4'b1100: begin
                             ALUControl = 2'b11; // ORR
  //                         NoWrite = 1'b0;    
-                            MovF = 1'b0;    
+                            MovF = 1'b0;
+                            CmpF = 1'b0;      
                       end
 
              4'b1101: begin
                             ALUControl = 2'bx; // uniplemented
  //                         NoWrite = 1'b0;    
-                            MovF = 1'b1;     // MOV
+                            MovF = 1'b1;
+                            CmpF = 1'b0;       // MOV
+                      end
+              
+
+            // CMP r4,r1 em binário: 1110 0001 0101 0100 0000 0000 0000 0001 
+            // Cond = 1110; op = 00
+            // funct5 = 0 1010 0
+
+             4'b1010: begin
+                            ALUControl = 2'b01; // Se cmd = 1010 a ALU faz um sub
+ //                         NoWrite = 1'b0;
+                            MovF = 1'b0;
+                            CmpF = 1'b1;  
+
                       end
 
-               default: begin
+             default: begin
                             ALUControl = 2'bx; // uniplemented
  //                         NoWrite = 1'b0;    
-                            MovF = 1'b0;     
+                            MovF = 1'b0; 
+                            CmpF = 1'b0;      
                       end
 
 
@@ -301,8 +321,8 @@ module condlogic(input  logic       clk, reset,
                  input  logic [3:0] Cond,
                  input  logic [3:0] ALUFlags,
                  input  logic [1:0] FlagW,
-                 input  logic       PCS, RegW, MemW, MovF,                           // MovF Flag do MOV
-                 output logic       PCSrc, RegWrite, MemWrite, MovFlag);             // MovF Flag saida do MOV
+                 input  logic       PCS, RegW, MemW, MovF,CmpF,                           // MovF Flag do MOV,CmpF
+                 output logic       PCSrc, RegWrite, MemWrite, MovFlag,CmpFlag);             // MovF Flag saida do MOV, CmpFlag
                  
   logic [1:0] FlagWrite;
   logic [3:0] Flags;
@@ -319,7 +339,8 @@ module condlogic(input  logic       clk, reset,
   assign RegWrite  = RegW  & CondEx;
   assign MemWrite  = MemW  & CondEx;
   assign PCSrc     = PCS   & CondEx;
-  assign MovFlag   = MovF  & CondEx;  // Testar se a instru��o Mov pode ser executada
+  assign MovFlag   = MovF  & CondEx;  // Declaração do MovFlag = MovF
+  assign CmpFlag   = CmpF  & CondEx;  // Declaração do CmpFlag = CmpF
 endmodule    
 
 module condcheck(input  logic [3:0] Cond,
@@ -360,7 +381,7 @@ module datapath(input  logic        clk, reset,
                 input  logic [1:0]  ALUControl,
                 input  logic        MemtoReg,
                 input  logic        PCSrc,
-                input  logic        MovFlag,                  // MOVFlag adicionado        
+                input  logic        MovFlag,CmpFlag,                  // MOVFlag adicionado,CmpFlag        
                 output logic [3:0]  ALUFlags,
                 output logic [31:0] PC,
                 input  logic [31:0] Instr,
@@ -384,7 +405,8 @@ module datapath(input  logic        clk, reset,
                  Instr[15:12], Result, PCPlus8, 
                  SrcA, WriteData); 
 
-  mux2 #(32)  MOVmux(AluResult, SrcB, MovFlag, MovORAluResult);          // Mux do mov implementado
+  mux2 #(32)  MOVmux(AluResult, SrcB, MovFlag, MovORAluResult);
+  mux2 #(32)  CMPmux(AluResult, 1, CmpFlag, MovORAluResult);         // Mux do mov implementado
 
   mux2 #(32)  resmux(MovORAluResult, ReadData, MemtoReg, Result);        // AluResult substituido por MovORAluResult  
   extend      ext(Instr[23:0], ImmSrc, ExtImm);
