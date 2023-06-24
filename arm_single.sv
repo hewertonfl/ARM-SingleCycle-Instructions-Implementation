@@ -1,3 +1,4 @@
+
 // arm_single.sv
 // David_Harris@hmc.edu and Sarah_Harris@hmc.edu 25 June 2013
 // Single-cycle implementation of a subset of ARMv4
@@ -164,7 +165,8 @@ module arm(input  logic        clk, reset,
   logic [3:0] ALUFlags;
   logic       RegWrite, MovFlag,breakFlag,                                   // MovFlag adicionado , breakFlag
               ALUSrc, MemtoReg, PCSrc;
-  logic [1:0] RegSrc, ImmSrc, ALUControl;
+  logic [1:0] RegSrc, ImmSrc;
+  logic [2:0] ALUControl;
 
   controller c(clk, reset, Instr[31:12], ALUFlags, 
                RegSrc, RegWrite, ImmSrc, 
@@ -186,19 +188,19 @@ module controller(input  logic         clk, reset,
                   output logic         RegWrite,
                   output logic [1:0]   ImmSrc,
                   output logic         ALUSrc, 
-                  output logic [1:0]   ALUControl,
+                  output logic [2:0]   ALUControl,
                   output logic         MemWrite, MemtoReg,
                   output logic         MovFlag,breakFlag,                         //MovFlag adicionada; saida do controlador, breakFlag             
                   output logic         PCSrc);
 
   logic [1:0] FlagW;
-  logic       PCS, RegW, MemW, MovF,breakF;                                    //MovF logica adicionada,, breakF
+  logic       PCS, RegW, MemW, MovF,StopFlag;                                    //MovF logica adicionada,, StopFlag
   
   decoder dec(Instr[27:26], Instr[25:20], Instr[15:12],                 
-              FlagW, PCS, RegW, MemW,                                   //MovF adicionada; se atentar a contagem, breakF
-              MemtoReg, ALUSrc, MovF,breakF, ImmSrc, RegSrc, ALUControl);
+              FlagW, PCS, RegW, MemW,                                   //MovF adicionada; se atentar a contagem, StopFlag
+              MemtoReg, ALUSrc, MovF,StopFlag, ImmSrc, RegSrc, ALUControl);
   condlogic cl(clk, reset, Instr[31:28], ALUFlags,                         
-               FlagW, PCS, RegW, MemW, MovF,breakF,                            //MovF adicionada; se atentar a contagem, breakF
+               FlagW, PCS, RegW, MemW, MovF,StopFlag,                            //MovF adicionada; se atentar a contagem, StopFlag
                PCSrc, RegWrite, MemWrite, MovFlag,breakFlag);             //MovFlag adicionada saida; se atentar a contagem, breakFlag
 endmodule
 
@@ -207,8 +209,9 @@ module decoder(input  logic [1:0] Op,
                input  logic [3:0] Rd,
                output logic [1:0] FlagW,
                output logic       PCS, RegW, MemW,
-               output logic       MemtoReg, ALUSrc, MovF,breakF,                  // MovF Flag do MOV, breakF
-               output logic [1:0] ImmSrc, RegSrc, ALUControl);
+               output logic       MemtoReg, ALUSrc, MovF,StopFlag,                  // MovF Flag do MOV, StopFlag
+               output logic [1:0] ImmSrc, RegSrc,
+               output logic [2:0] ALUControl);
 
   logic [9:0] controls;
   logic       Branch, ALUOp;
@@ -239,38 +242,33 @@ module decoder(input  logic [1:0] Op,
     if (ALUOp) begin                 // which DP Instr?
       case(Funct[4:1]) 
   	         4'b0100: begin
-                            ALUControl = 2'b00; // ADD
- //                         NoWrite = 1'b0;    
+                            ALUControl = 3'b000; // ADD   
                             MovF = 1'b0;
-                            breakF = 1'b0;    
+                            StopFlag = 1'b0;    
                       end
 
              4'b0010: begin
-                            ALUControl = 2'b01; // SUB
- //                         NoWrite = 1'b0;    
+                            ALUControl = 3'b001; // SUB  
                             MovF = 1'b0;
-                            breakF = 1'b0;      
+                            StopFlag = 1'b0;      
                       end
 
              4'b0000: begin
-                            ALUControl = 2'b10; // AND
- //                         NoWrite = 1'b0;    
+                            ALUControl = 3'b010; // AND
                             MovF = 1'b0;
-                            breakF = 1'b0;      
+                            StopFlag = 1'b0;      
                       end
 
              4'b1100: begin
-                            ALUControl = 2'b11; // ORR
- //                         NoWrite = 1'b0;    
+                            ALUControl = 3'b011; // ORR  
                             MovF = 1'b0;
-                            breakF = 1'b0;      
+                            StopFlag = 1'b0;      
                       end
 
              4'b1101: begin
-                            ALUControl = 2'bx; // uniplemented
- //                         NoWrite = 1'b0;    
+                            ALUControl = 3'bx; // uniplemented 
                             MovF = 1'b1;
-                            breakF = 1'b0;       // MOV
+                            StopFlag = 1'b0;       // MOV
                       end
               
             // Inicio da Instrução CMP
@@ -279,9 +277,9 @@ module decoder(input  logic [1:0] Op,
             // funct5 = 0 1010 0
 
              4'b1010: begin
-                            ALUControl = 2'b01; // Se cmd = 1010 a ALU faz um sub
+                            ALUControl = 3'b001; // Se cmd = 1010 a ALU faz um sub
                             MovF = 1'b0;
-                            breakF = 1'b1;
+                            StopFlag = 1'b1;
 
                       end
 
@@ -291,35 +289,36 @@ module decoder(input  logic [1:0] Op,
             // funct5 = 1 1000 1
 
             4'b1000: begin
-                            ALUControl = 2'b10; // AND; Se cmd = 1000 a ALU faz um and
+                            ALUControl = 3'b010; // AND; Se cmd = 1000
                             MovF = 1'b0;
-                            breakF = 1'b1;  
+                            StopFlag = 1'b1;  
+                      end
+            
+            // Inicio da instrução EOR
+            // EOR r1, r1,#4 em binario:  1110 0010 0010 0001 0100 0000 0000 0100 
+            // Cond = 1110; op = 00
+            // funct5 = 1 1000 0
+
+            4'b0001: begin
+                            ALUControl = 3'b111; // XOR; Se cmd = 0001
+                            MovF = 1'b0;
+                            StopFlag = 1'b0;  
                       end
 
              default: begin
-                            ALUControl = 2'bx; // uniplemented
- //                         NoWrite = 1'b0;    
+                            ALUControl = 3'bx; // uniplemented
                             MovF = 1'b0; 
-                            breakF = 1'b0;      
+                            StopFlag = 1'b0;      
                       end
-
-
-
-// codigo antigo
-//          4'b0100:  ALUControl = 2'b00; // ADD
- // 	    4'b0010: ALUControl = 2'b01; // SUB
-  //        4'b0000: ALUControl = 2'b10; // AND
-  //	    4'b1100: ALUControl = 2'b11; // ORR
- //	    default: ALUControl = 2'bx;  // unimplemented
       endcase
-      // update flags if S bit is set 
+  // update flags if S bit is set 
 	// (C & V only updated for arith instructions)
       FlagW[1]      = Funct[0]; // FlagW[1] = S-bit
 	// FlagW[0] = S-bit & (ADD | SUB)
       FlagW[0]      = Funct[0] & 
-        (ALUControl == 2'b00 | ALUControl == 2'b01); 
+        (ALUControl == 3'b000 | ALUControl == 3'b001); 
     end else begin
-      ALUControl = 2'b00; // add for non-DP instructions
+      ALUControl = 3'b000; // add for non-DP instructions
       FlagW      = 2'b00; // don't update Flags
     end
               
@@ -331,7 +330,7 @@ module condlogic(input  logic       clk, reset,
                  input  logic [3:0] Cond,
                  input  logic [3:0] ALUFlags,
                  input  logic [1:0] FlagW,
-                 input  logic       PCS, RegW, MemW, MovF,breakF,                           // MovF Flag do MOV,breakF
+                 input  logic       PCS, RegW, MemW, MovF,StopFlag,                           // MovF Flag do MOV,StopFlag
                  output logic       PCSrc, RegWrite, MemWrite, MovFlag,breakFlag);             // MovF Flag saida do MOV, breakFlag
                  
   logic [1:0] FlagWrite;
@@ -346,11 +345,11 @@ module condlogic(input  logic       clk, reset,
   // write controls are conditional
   condcheck cc(Cond, Flags, CondEx);
   assign FlagWrite = FlagW & {2{CondEx}};
-  assign RegWrite  = RegW  & CondEx;
+  assign RegWrite  = RegW  & CondEx & ~StopFlag;
   assign MemWrite  = MemW  & CondEx;
   assign PCSrc     = PCS   & CondEx;
   assign MovFlag   = MovF  & CondEx;  // Declara  o do MovFlag = MovF
-  assign breakFlag   = breakF  & CondEx;  // Declara  o do breakFlag = breakF
+  assign breakFlag   = StopFlag  & CondEx;  // Declara  o do breakFlag = StopFlag
 endmodule    
 
 module condcheck(input  logic [3:0] Cond,
@@ -388,7 +387,7 @@ module datapath(input  logic        clk, reset,
                 input  logic        RegWrite,
                 input  logic [1:0]  ImmSrc,
                 input  logic        ALUSrc,
-                input  logic [1:0]  ALUControl,
+                input  logic [2:0]  ALUControl,
                 input  logic        MemtoReg,
                 input  logic        PCSrc,
                 input  logic        MovFlag,breakFlag,                  // MOVFlag adicionado,breakFlag        
@@ -415,8 +414,8 @@ module datapath(input  logic        clk, reset,
                  Instr[15:12], Result, PCPlus8, 
                  SrcA, WriteData); 
 
-  mux2 #(32)  MOVmux(AluResult, SrcB, MovFlag, MovORAluResult);
-  mux2 #(32)  CMPmux(AluResult, x, breakFlag, MovORAluResult);         // Mux do mov implementado
+  mux2 #(32)  MOVmux(ALUResult, SrcB, MovFlag, MovORAluResult);
+ // mux2 #(32)  CMPmux(AluResult, x, breakFlag, MovORAluResult);         // Mux do mov implementado
 
   mux2 #(32)  resmux(MovORAluResult, ReadData, MemtoReg, Result);        // AluResult substituido por MovORAluResult  
   extend      ext(Instr[23:0], ImmSrc, ExtImm);
@@ -500,7 +499,7 @@ endmodule
 
 
 module alu(input  logic [31:0] a, b,
-           input  logic [1:0]  ALUControl,
+           input  logic [2:0]  ALUControl,
            output logic [31:0] Result,
            output logic [3:0]  ALUFlags);
 
@@ -512,10 +511,11 @@ module alu(input  logic [31:0] a, b,
   assign sum = a + condinvb + ALUControl[0];
 
   always_comb
-    casex (ALUControl[1:0])
-      2'b0?: Result = sum;
-      2'b10: Result = a & b;
-      2'b11: Result = a | b;
+    casex (ALUControl[2:0])
+      3'b00?: Result = sum;
+      3'b010: Result = a & b;
+      3'b011: Result = a | b;
+      3'b111: Result = a ^ b;
     endcase
 
   assign neg      = Result[31];
@@ -526,6 +526,3 @@ module alu(input  logic [31:0] a, b,
                     (a[31] ^ sum[31]); 
   assign ALUFlags    = {neg, zero, carry, overflow};
 endmodule
-
-
-
