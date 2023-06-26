@@ -1,4 +1,5 @@
 
+
 // arm_single.sv
 // David_Harris@hmc.edu and Sarah_Harris@hmc.edu 25 June 2013
 // Single-cycle implementation of a subset of ARMv4
@@ -126,19 +127,25 @@ module top(input  logic        clk, reset,
   logic [31:0] PC, Instr, ReadData;
   
   // instantiate processor and memories
-  arm arm(clk, reset, PC, Instr, MemWrite, DataAdr, 
+  arm arm(clk, reset, PC, Instr, MemWrite,BFlag, DataAdr, 
           WriteData, ReadData);
   imem imem(PC, Instr);
-  dmem dmem(clk, MemWrite, DataAdr, WriteData, ReadData);
+  dmem dmem(clk, MemWrite, DataAdr, WriteData, BFlag, ReadData);
 endmodule
 
 module dmem(input  logic        clk, we,
             input  logic [31:0] a, wd,
+            input  logic        BFlag,
             output logic [31:0] rd);
 
   logic [31:0] RAM[63:0];
 
-  assign rd = RAM[a[31:2]]; // word aligned
+  // LDRB
+  always_comb
+    if (BFlag)
+      rd = {24'b0, RAM[a[31:2]][7:0]};
+    else
+      rd = RAM[a[31:2]]; // word aligned
 
   always_ff @(posedge clk)
     if (we) RAM[a[31:2]] <= wd;
@@ -158,7 +165,7 @@ endmodule
 module arm(input  logic        clk, reset,
            output logic [31:0] PC,
            input  logic [31:0] Instr,
-           output logic        MemWrite,
+           output logic        MemWrite,BFlag,
            output logic [31:0] ALUResult, WriteData,
            input  logic [31:0] ReadData);
 
@@ -171,7 +178,7 @@ module arm(input  logic        clk, reset,
   controller c(clk, reset, Instr[31:12], ALUFlags, 
                RegSrc, RegWrite, ImmSrc, 
                ALUSrc, ALUControl,
-               MemWrite, MemtoReg, MovFlag,breakFlag, PCSrc);                 // MovFlag adicionado , breakFlag
+               MemWrite, MemtoReg, MovFlag,breakFlag,BFlag, PCSrc);                 // MovFlag adicionado , breakFlag
   datapath dp(clk, reset, 
               RegSrc, RegWrite, ImmSrc,
               ALUSrc, ALUControl,
@@ -190,17 +197,17 @@ module controller(input  logic         clk, reset,
                   output logic         ALUSrc, 
                   output logic [2:0]   ALUControl,
                   output logic         MemWrite, MemtoReg,
-                  output logic         MovFlag,breakFlag,                         //MovFlag adicionada; saida do controlador, breakFlag             
+                  output logic         MovFlag,breakFlag,BFlag,                         //MovFlag adicionada; saida do controlador, breakFlag             
                   output logic         PCSrc);
 
   logic [1:0] FlagW;
-  logic       PCS, RegW, MemW, MovF,StopFlag;                                    //MovF logica adicionada,, StopFlag
+  logic       PCS, RegW, MemW, MovF,StopFlag;                                  //MovF logica adicionada,, StopFlag
   
   decoder dec(Instr[27:26], Instr[25:20], Instr[15:12],                 
               FlagW, PCS, RegW, MemW,                                   //MovF adicionada; se atentar a contagem, StopFlag
-              MemtoReg, ALUSrc, MovF,StopFlag, ImmSrc, RegSrc, ALUControl);
+              MemtoReg, ALUSrc, MovF,StopFlag,BFlag,ImmSrc, RegSrc, ALUControl);
   condlogic cl(clk, reset, Instr[31:28], ALUFlags,                         
-               FlagW, PCS, RegW, MemW, MovF,StopFlag,                            //MovF adicionada; se atentar a contagem, StopFlag
+               FlagW, PCS, RegW, MemW, MovF,StopFlag,                           //MovF adicionada; se atentar a contagem, StopFlag
                PCSrc, RegWrite, MemWrite, MovFlag,breakFlag);             //MovFlag adicionada saida; se atentar a contagem, breakFlag
 endmodule
 
@@ -209,7 +216,7 @@ module decoder(input  logic [1:0] Op,
                input  logic [3:0] Rd,
                output logic [1:0] FlagW,
                output logic       PCS, RegW, MemW,
-               output logic       MemtoReg, ALUSrc, MovF,StopFlag,                  // MovF Flag do MOV, StopFlag
+               output logic       MemtoReg, ALUSrc, MovF,StopFlag, BFlag,                 // MovF Flag do MOV, StopFlag
                output logic [1:0] ImmSrc, RegSrc,
                output logic [2:0] ALUControl);
 
@@ -220,18 +227,42 @@ module decoder(input  logic [1:0] Op,
   
   always_comb
   	case(Op)
-  	                        // Data processing immediate
-  	  2'b00: if (Funct[5])  controls = 10'b0000101001; 
-  	                        // Data processing register
-  	         else           controls = 10'b0000001001; 
-  	                        // LDR
-  	  2'b01: if (Funct[0])  controls = 10'b0001111000; 
-  	                        // STR
-  	         else           controls = 10'b1001110100; 
-  	                        // B
-  	  2'b10:                controls = 10'b0110100010; 
-  	                        // Unimplemented
-  	  default:              controls = 10'bx;          
+  	  // Data processing immediate
+  	  2'b00: if (Funct[5])  
+                controls = 10'b0000101001; 
+  	  // Data processing register
+  	         else           
+                controls = 10'b0000001001; 
+  	  // Verifica se a instrução é LDR ou LDRB
+  	  2'b01: if (Funct[0]) // Verifica se L=1
+                // LDRB
+                if (Funct[2]) begin
+                  controls = 10'b0001111000;
+                  BFlag = 1'b1;
+                end
+                // LDR
+                else begin
+                  controls = 10'b0001111000;
+                  BFlag = 1'b0;
+                end
+  	  // Verifica se a instrução é STR ou STRB
+  	         else // L=0
+                 // STRB
+                if (Funct[2]) begin
+                  controls = 10'b1001110100; 
+                  BFlag = 1'b1; // B = 1
+                end
+                // STR
+                else begin
+                  controls = 10'b1001110100; 
+                  BFlag = 1'b0;
+                end 
+  	  // B
+  	  2'b10:                
+                controls = 10'b0110100010; 
+  	  // Unimplemented
+  	  default:  
+                controls = 10'bx;          
   	endcase
 
   assign {RegSrc, ImmSrc, ALUSrc, MemtoReg, 
