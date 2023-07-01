@@ -142,13 +142,31 @@ module dmem(input  logic        clk, we,
 
   // LDRB
   always_comb
-    if (BFlag)
+    if (BFlag) begin
       rd = {24'b0, RAM[a[31:2]][7:0]};
-    else
+    end
+    else begin
       rd = RAM[a[31:2]]; // word aligned
+    end
 
   always_ff @(posedge clk)
-    if (we) RAM[a[31:2]] <= wd;
+    if (we) begin 
+      if (BFlag) 
+      case(a[1:0])                 //STRB
+
+      2'b00:     RAM[a[31:2]][31:24] <= wd[7:0];
+      2'b01:     RAM[a[31:2]][23:16] <= wd[7:0];
+      2'b10:     RAM[a[31:2]][15:8] <= wd[7:0];
+      2'b11:     RAM[a[31:2]][7:0]  <= wd[7:0];
+
+    endcase
+
+  
+
+    else begin  
+      RAM[a[31:2]] <= wd;  // STR
+    end 
+    end
 endmodule
 
 module imem(input  logic [31:0] a,
