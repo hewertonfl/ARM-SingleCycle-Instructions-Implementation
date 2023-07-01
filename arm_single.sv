@@ -127,15 +127,15 @@ module top(input  logic        clk, reset,
   logic [31:0] PC, Instr, ReadData;
   
   // instantiate processor and memories
-  arm arm(clk, reset, PC, Instr, MemWrite,BFlag, DataAdr, 
+  arm arm(clk, reset, PC, Instr, MemWrite,BFlag,BlFlag, DataAdr, 
           WriteData, ReadData);
   imem imem(PC, Instr);
-  dmem dmem(clk, MemWrite, DataAdr, WriteData, BFlag, ReadData);
+  dmem dmem(clk, MemWrite, DataAdr, WriteData, BFlag,BlFlag, ReadData);
 endmodule
 
 module dmem(input  logic        clk, we,
             input  logic [31:0] a, wd,
-            input  logic        BFlag,
+            input  logic        BFlag,BlFlag,
             output logic [31:0] rd);
 
   logic [31:0] RAM[63:0];
@@ -183,7 +183,7 @@ endmodule
 module arm(input  logic        clk, reset,
            output logic [31:0] PC,
            input  logic [31:0] Instr,
-           output logic        MemWrite,BFlag,
+           output logic        MemWrite,BFlag,BlFlag,
            output logic [31:0] ALUResult, WriteData,
            input  logic [31:0] ReadData);
 
@@ -196,11 +196,11 @@ module arm(input  logic        clk, reset,
   controller c(clk, reset, Instr[31:12], ALUFlags, 
                RegSrc, RegWrite, ImmSrc, 
                ALUSrc, ALUControl,
-               MemWrite, MemtoReg, MovFlag,breakFlag,BFlag, PCSrc);                 // MovFlag adicionado , breakFlag
+               MemWrite, MemtoReg, MovFlag,breakFlag,BFlag,BlFlag, PCSrc);                 // MovFlag adicionado , breakFlag
   datapath dp(clk, reset, 
               RegSrc, RegWrite, ImmSrc,
               ALUSrc, ALUControl,
-              MemtoReg, PCSrc, MovFlag,breakFlag,                              // MovFlag adicionado , breakFlag
+              MemtoReg, PCSrc, MovFlag,breakFlag,BlFlag,                              // MovFlag adicionado , breakFlag
               ALUFlags, PC, Instr,
               ALUResult, WriteData, ReadData);
 
@@ -215,7 +215,7 @@ module controller(input  logic         clk, reset,
                   output logic         ALUSrc, 
                   output logic [2:0]   ALUControl,
                   output logic         MemWrite, MemtoReg,
-                  output logic         MovFlag,breakFlag,BFlag,                         //MovFlag adicionada; saida do controlador, breakFlag             
+                  output logic         MovFlag,breakFlag,BFlag,BlFlag,                         //MovFlag adicionada; saida do controlador, breakFlag             
                   output logic         PCSrc);
 
   logic [1:0] FlagW;
@@ -223,7 +223,7 @@ module controller(input  logic         clk, reset,
   
   decoder dec(Instr[27:26], Instr[25:20], Instr[15:12],                 
               FlagW, PCS, RegW, MemW,                                   //MovF adicionada; se atentar a contagem, StopFlag
-              MemtoReg, ALUSrc, MovF,StopFlag,BFlag,ImmSrc, RegSrc, ALUControl);
+              MemtoReg, ALUSrc, MovF,StopFlag,BFlag,BlFlag,ImmSrc, RegSrc, ALUControl);
   condlogic cl(clk, reset, Instr[31:28], ALUFlags,                         
                FlagW, PCS, RegW, MemW, MovF,StopFlag,                           //MovF adicionada; se atentar a contagem, StopFlag
                PCSrc, RegWrite, MemWrite, MovFlag,breakFlag);             //MovFlag adicionada saida; se atentar a contagem, breakFlag
@@ -234,7 +234,7 @@ module decoder(input  logic [1:0] Op,
                input  logic [3:0] Rd,
                output logic [1:0] FlagW,
                output logic       PCS, RegW, MemW,
-               output logic       MemtoReg, ALUSrc, MovF,StopFlag, BFlag,                 // MovF Flag do MOV, StopFlag
+               output logic       MemtoReg, ALUSrc, MovF,StopFlag, BFlag,BlFlag,                 // MovF Flag do MOV, StopFlag
                output logic [1:0] ImmSrc, RegSrc,
                output logic [2:0] ALUControl);
 
@@ -277,7 +277,14 @@ module decoder(input  logic [1:0] Op,
                 end 
   	  // B
   	  2'b10:                
-                controls = 10'b0110100010; 
+      if (Funct[4]) begin
+        //controls = 10'b0110100010;
+        BlFlag = 1'b1;
+      end
+      else begin
+          controls = 10'b0110100010;
+          BlFlag = 1'b0;
+      end
   	  // Unimplemented
   	  default:  
                 controls = 10'bx;          
@@ -439,7 +446,7 @@ module datapath(input  logic        clk, reset,
                 input  logic [2:0]  ALUControl,
                 input  logic        MemtoReg,
                 input  logic        PCSrc,
-                input  logic        MovFlag,breakFlag,                  // MOVFlag adicionado,breakFlag        
+                input  logic        MovFlag,breakFlag,BlFlag,                  // MOVFlag adicionado,breakFlag        
                 output logic [3:0]  ALUFlags,
                 output logic [31:0] PC,
                 input  logic [31:0] Instr,
@@ -459,7 +466,7 @@ module datapath(input  logic        clk, reset,
   // register file logic
   mux2 #(4)   ra1mux(Instr[19:16], 4'b1111, RegSrc[0], RA1);
   mux2 #(4)   ra2mux(Instr[3:0], Instr[15:12], RegSrc[1], RA2);
-  regfile     rf(clk, RegWrite, RA1, RA2,
+  regfile     rf(clk, RegWrite,BlFlag, RA1, RA2,
                  Instr[15:12], Result, PCPlus8, 
                  SrcA, WriteData); 
 
@@ -476,12 +483,16 @@ module datapath(input  logic        clk, reset,
 endmodule
 
 module regfile(input  logic        clk, 
-               input  logic        we3, 
+               input  logic        we3,BlFlag,
                input  logic [3:0]  ra1, ra2, wa3, 
                input  logic [31:0] wd3, r15,
                output logic [31:0] rd1, rd2);
 
   logic [31:0] rf[14:0];
+
+  always_ff @(posedge clk)
+    if (BlFlag) rf[14] <= r15;
+
 
   // three ported register file
   // read two ports combinationally
