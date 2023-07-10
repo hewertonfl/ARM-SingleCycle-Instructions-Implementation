@@ -142,28 +142,28 @@ module dmem(input  logic        clk, we,
 
   // LDRB
   always_comb
+    // Se a instrução a instruçaõ for LDR E B=1'b1, instrução sera LDRB
     if (BFlag) begin
       rd = {24'b0, RAM[a[31:2]][7:0]};
     end
+    // Se B=1'b0, a instrução sera LDR
     else begin
       rd = RAM[a[31:2]]; // word aligned
     end
 
   always_ff @(posedge clk)
+  // Se WriteEnabel ligado, E a instrução for STR e B=1'b1, a instrução sera STRB
     if (we) begin 
       if (BFlag) 
       case(a[1:0])                 //STRB
-
       2'b00:     RAM[a[31:2]][31:24] <= wd[7:0];
       2'b01:     RAM[a[31:2]][23:16] <= wd[7:0];
       2'b10:     RAM[a[31:2]][15:8] <= wd[7:0];
       2'b11:     RAM[a[31:2]][7:0]  <= wd[7:0];
-
     endcase
 
-  
-
-    else begin  
+    else begin
+      // Se B=1'b0, a instrução sera STR
       RAM[a[31:2]] <= wd;  // STR
     end 
     end
@@ -321,7 +321,13 @@ module decoder(input  logic [1:0] Op,
                             StopFlag = 1'b0;      
                       end
 
+            // Inicio da Instrução MOV
+            // mov r1,#3 em binario: 1110 00 111010 0000 0001 0000 0000 0011  
+            // Cond = 1110; op = 00
+            // funct5 = 0 1010 0
+
              4'b1101: begin
+              
                             ALUControl = 3'bx; // uniplemented 
                             MovF = 1'b1;
                             StopFlag = 1'b0;       // MOV
